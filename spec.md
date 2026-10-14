@@ -63,7 +63,7 @@ Pd and τc are computed as defined in the pre-study report (0.075 Hz causal high
 - Architecture (v1): 4–5 × [Conv1D(k=7) → BatchNorm → ReLU → MaxPool(2)] → global average pooling → concatenate peak amplitude → Linear → (μ, log σ).
 - Loss: `nn.GaussianNLLLoss`.
 - Augmentation (training only): shift the P arrival by ±0.2 s, add noise.
-- Device: `mps` (MacBook), otherwise `cpu`.
+- Device: picked automatically in this order: `cuda` → `mps` → `cpu` (see section 10).
 - Architecture changes are allowed, but every experiment uses a new config file.
 
 ## 7. Evaluation
@@ -95,6 +95,9 @@ first-three-seconds/
 ├── SPEC.md
 ├── TASKS.md
 ├── README.md
+├── pyproject.toml
+├── requirements.txt
+├── .gitattributes
 ├── configs/         # one yaml per experiment
 ├── data/            # not tracked by git
 ├── splits/          # event ID lists (tracked by git)
@@ -103,17 +106,54 @@ first-three-seconds/
 │   ├── features.py  # Pd, τc, τp_max
 │   ├── models.py
 │   ├── train.py
-│   └── evaluate.py
+│   ├── evaluate.py
+│   ├── utils.py     # get_device(), paths, seeding
+│   └── smoke_test.py
 ├── notebooks/       # exploration and plots only
 └── results/         # metric tables and figures
 ```
 
 - Core code lives in `src/`. Notebooks are for exploration and visualization only.
-- Python 3.12; dependencies pinned in `requirements.txt`.
+- Dependencies pinned in `requirements.txt`.
 
-## 10. Agent rules
+## 10. Cross-platform requirements
+
+The project must run unchanged on **macOS, Linux, Windows and Google Colab**.
+
+**Python and packages**
+- Developed on Python 3.12; code must also work on **3.10+** (Colab's version can differ).
+- `requirements.txt` holds no platform-specific packages or wheel URLs. PyTorch is installed per platform as described in the README (CUDA, MPS or CPU build).
+- The project is installable with `pip install -e .` (a minimal `pyproject.toml`), so `src` imports work the same everywhere.
+
+**Paths and files**
+- All paths use `pathlib.Path`. No hardcoded absolute paths, no `/` or `\` string joins.
+- The data directory comes from config or the `F3S_DATA_DIR` environment variable, defaulting to `./data`. On Colab it can point to Google Drive.
+- Files are opened with explicit `encoding="utf-8"`.
+- File and folder names: lowercase, no spaces, no non-ASCII characters (case-sensitivity differs between systems).
+- `.gitattributes` enforces LF line endings for text files.
+
+**Hardware**
+- One helper (`src/utils.py: get_device()`) picks `cuda` → `mps` → `cpu`. No other code hardcodes a device.
+- Code must not rely on CUDA-only features. If an op is unsupported on `mps`, fall back to `cpu` for that op instead of failing.
+
+**Processes and scripts**
+- Every runnable script has an `if __name__ == "__main__":` guard (Windows and macOS start DataLoader workers with `spawn`).
+- `num_workers` is configurable; default `0` on Windows.
+- No bash-only scripts. Entry points are Python (`python -m src.train --config configs/x.yaml`).
+- No reliance on system tools that are not installed by pip.
+
+**Colab**
+- `notebooks/colab_setup.ipynb`: clone the repo, `pip install -e .`, optionally mount Drive and set `F3S_DATA_DIR`, run a smoke test.
+- Long jobs save checkpoints regularly so a disconnected session can resume.
+
+**Verification**
+- A small smoke test (`python -m src.smoke_test`) runs the full pipeline on ~100 traces in under a minute on CPU.
+- Optional: a GitHub Actions matrix (ubuntu, macos, windows) runs the smoke test on every push.
+
+## 11. Agent rules
 
 - **Do not change** the decisions in sections 3, 4 and 7 without asking.
+- Every change must keep the section 10 cross-platform rules; run the smoke test before reporting a task as done.
 - If a result looks suspiciously good (e.g. MAE < 0.15), suspect data leakage first and check.
 - Never invent metadata, column names or data sources; ask when unsure.
 - At the end of every task: what you did, which files changed, and the results of the checks.
